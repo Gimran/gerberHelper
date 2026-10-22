@@ -312,53 +312,20 @@ def remove_nonet_polygons(project, doc, include_silk=False):
         return rep
     doomed_n = {n for n, _, _ in doomed}
 
-    children = collections.defaultdict(list)
-    for i in regions:
-        p = doc.get(i, 'POLYGON')
-        if p is not None:
-            children[int(p)].append(i)
-    doomed_regions = [i for n in doomed_n for i in children[n]]
-
+    children = collections.Counter(int(doc.get(i, 'POLYGON')) for i in regions
+                                   if doc.get(i, 'POLYGON') is not None)
     for n, i, lay in doomed:
         rep.change(f'удалён полигон на {lay}')
         rep.detail(f'   {lay}: {name_of(doc.rec(i)) or "без имени"} '
-                   f'({len(children[n])} залитых регионов)')
-    if doomed_regions:
-        rep.change(f'удалено залитых регионов', len(doomed_regions))
+                   f'({children[n]} залитых регионов)')
 
-    survivors = [n for n in range(len(polys)) if n not in doomed_n]
-    remap = {old: new for new, old in enumerate(survivors)}
-    drop = {i for _, i, _ in doomed} | set(doomed_regions)
-    for i in drop:
-        doc.delete(i)
-
-    renum = reref = 0
-    for old, i in enumerate(polys):
-        if i in drop:
-            continue
-        if old != remap[old]:
-            doc.set(i, 'INDEXFORSAVE', remap[old])
-            doc.set(i, 'ID', remap[old])
-            renum += 1
-    new_region_index = 0
-    for i in regions:
-        if i in drop:
-            continue
-        p = doc.get(i, 'POLYGON')
-        if p is not None and int(p) in remap and remap[int(p)] != int(p):
-            doc.set(i, 'POLYGON', remap[int(p)])
-            reref += 1
-        if doomed_regions and doc.get(i, 'INDEXFORSAVE') != str(new_region_index):
-            doc.set(i, 'INDEXFORSAVE', new_region_index)
-        new_region_index += 1
-    rep.note(f'перенумеровано полигонов: {renum}, ссылок Region -> Polygon: {reref}')
-
-    # nothing may point at a polygon that is gone
-    left = {int(doc.get(i, 'INDEXFORSAVE')) for i in doc.indices('Polygon')}
-    bad = [int(doc.get(i, 'POLYGON')) for i in doc.indices('Region')
-           if doc.get(i, 'POLYGON') is not None and int(doc.get(i, 'POLYGON')) not in left]
-    if bad:
-        rep.error(f'висячие ссылки на удалённые полигоны: {sorted(set(bad))[:10]}')
+    result = doc.delete_polygons(doomed_n)
+    if result['regions']:
+        rep.change('удалено залитых регионов', result['regions'])
+    rep.note(f'перенумеровано полигонов: {result["renumbered"]}, '
+             f'ссылок Region -> Polygon: {result["rereferenced"]}')
+    if result['dangling']:
+        rep.error(f'висячие ссылки на удалённые полигоны: {result["dangling"][:10]}')
     return rep
 
 

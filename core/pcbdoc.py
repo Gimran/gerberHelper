@@ -99,6 +99,55 @@ class PcbDoc:
         if i + 1 < len(self.tok):
             self.tok[i + 1] = None          # and the separator that follows it
 
+    def delete_polygons(self, numbers):
+        """Удалить полигоны с данными позициями в порядке файла, вместе с их залитыми регионами.
+
+        Оставшиеся полигоны перенумеровываются (ID, INDEXFORSAVE), ссылки Region -> Polygon
+        переписываются, регионы получают сплошную нумерацию, если среди них были удалённые.
+        -> dict(children={позиция: число регионов}, regions, renumbered, rereferenced, dangling)
+        """
+        polys, regions = self.indices('Polygon'), self.indices('Region')
+        doomed = set(numbers)
+        children = collections.defaultdict(list)
+        for i in regions:
+            p = self.get(i, 'POLYGON')
+            if p is not None:
+                children[int(p)].append(i)
+        doomed_regions = [i for n in doomed for i in children[n]]
+        counts = {n: len(children[n]) for n in doomed}
+
+        remap = {old: new for new, old in enumerate(n for n in range(len(polys)) if n not in doomed)}
+        drop = {polys[n] for n in doomed} | set(doomed_regions)
+        for i in drop:
+            self.delete(i)
+
+        renum = reref = 0
+        for old, i in enumerate(polys):
+            if i in drop:
+                continue
+            if old != remap[old]:
+                self.set(i, 'INDEXFORSAVE', remap[old])
+                self.set(i, 'ID', remap[old])
+                renum += 1
+        new_region_index = 0
+        for i in regions:
+            if i in drop:
+                continue
+            p = self.get(i, 'POLYGON')
+            if p is not None and int(p) in remap and remap[int(p)] != int(p):
+                self.set(i, 'POLYGON', remap[int(p)])
+                reref += 1
+            if doomed_regions and self.get(i, 'INDEXFORSAVE') != str(new_region_index):
+                self.set(i, 'INDEXFORSAVE', new_region_index)
+            new_region_index += 1
+
+        left = {int(self.get(i, 'INDEXFORSAVE')) for i in self.indices('Polygon')}
+        dangling = sorted({int(self.get(i, 'POLYGON')) for i in self.indices('Region')
+                           if self.get(i, 'POLYGON') is not None
+                           and int(self.get(i, 'POLYGON')) not in left})
+        return dict(children=counts, regions=len(doomed_regions), renumbered=renum,
+                    rereferenced=reref, dangling=dangling)
+
     def insert_after(self, i, records):
         """Insert new records right after record i, with the same line separator.
 

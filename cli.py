@@ -34,6 +34,8 @@ def main(argv=None):
                     help='поясок меди вокруг добавляемых отверстий, mil (по умолчанию 0: пад равен отверстию)')
     ap.add_argument('--holes-npth-over', type=float, default=None, metavar='MM',
                     help='добавляемые отверстия от этого диаметра и крупнее делать неметаллизированными')
+    ap.add_argument('--silk-hole-format', choices=['internal', 'mil'], default='internal',
+                    help='единицы внутренних контуров Region у вырезов шелкографии')
     ap.add_argument('--include-silk', action='store_true',
                     help='удалять полигоны без сети и на слоях шелкографии')
     ap.add_argument('-v', '--verbose', action='store_true', help='подробности по каждому объекту')
@@ -55,7 +57,7 @@ def main(argv=None):
     reports, _ = runner.run(project, steps,
                             opts=dict(out_dir=a.out, zero_missing=a.zero_missing,
                                       include_silk=a.include_silk,
-                                      holes_ring=a.holes_ring, holes_npth_over=a.holes_npth_over),
+                                      holes_ring=a.holes_ring, silk_hole_format=a.silk_hole_format, holes_npth_over=a.holes_npth_over),
                             apply=a.apply, pcb_path=a.pcb, log=lambda m: print('..', m))
     print()
     for r in reports:

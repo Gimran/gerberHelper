@@ -102,6 +102,7 @@ The interface is in Russian.
 | Via diameters per layer | per-layer sizes for Full Stack vias (`PADMODE=2`); `DIAMETER` is set to the maximum, as Altium itself does | off |
 | Hatching tracks to polygons | merges overlapping strokes of one net into an outline, writes a `Polygon` and deletes the strokes; significant cut-outs in the pour are kept by splitting; needs `shapely` | off |
 | Missing holes | for drill-file holes with neither a pad nor a via on the board, adds a net-less `Pad` the size of the hole; plating comes from the drill file, but holes from a given diameter up (the "неметаллизир. от, мм" field in the window, `--holes-npth-over` on the command line) are made non-plated; the copper ring is set with `--holes-ring`; holes with a wrong diameter are only listed | off |
+| Silkscreen cut-outs | polygons nested inside other silkscreen polygons (the counters of letters such as O or A), which CAMtastic fills in, become inner contours of a `Region`; hole units are set by `--silk-hole-format internal\|mil`; needs `shapely` | off |
 | Remove net-less polygons | polygon pours without a net on copper layers; silkscreen polygons are left alone | on |
 
 Extra checkboxes: zero the via size on layers where the Gerber has no pad, and also remove
@@ -155,6 +156,7 @@ layer assignment is available in the window only.
 python tests/regression.py
 python tests/test_hatch.py
 python tests/test_holes.py
+python tests/test_silk.py
 ```
 
 `regression.py` runs the tool on two boards and compares the result byte for byte with
@@ -181,6 +183,7 @@ core/
   excellon.py         reads Allegro drill files, writes the Altium layout
   pcbdoc.py           ASCII PcbDoc: field edits without shifting any other byte
   hatch.py            hatching tracks to polygons (shapely)
+  silk.py             silkscreen cut-outs (shapely)
   layers.py           applies the detection masks
   project.py          what is in the folder, the stack, the layer mapping
   ops.py              drill and board operations

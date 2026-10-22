@@ -4,7 +4,7 @@ Order matters: via layers must be known before per layer via sizes are read from
 the gerbers.  The document is written once, after every operation has had its
 say, and only if none of them reported an error.
 """
-from . import hatch, ops
+from . import hatch, ops, silk
 from .pcbdoc import PcbDoc
 
 # key, title, needs the PcbDoc
@@ -14,6 +14,7 @@ STEPS = [
     ('pads', 'Форма, размер и поворот площадок из Gerber', True),
     ('hatch', 'Штриховка треками в полигоны', True),
     ('holes', 'Недостающие отверстия из сверловки', True),
+    ('silk', 'Вырезы в полигонах шелкографии', True),
     ('via_sizes', 'Диаметры via по слоям', True),
     ('polygons', 'Удаление полигонов без сети', True),
 ]
@@ -68,6 +69,8 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
                 doc, opts.get('hatch_min_tracks', 50), opts.get('hatch_min_overlap', 1.4),
                 opts.get('hatch_min_area', 20000.0), opts.get('hatch_simplify', 0.3),
                 opts.get('hatch_min_void', 1000.0)))
+        elif key == 'silk':
+            reports.append(silk.silk_cutouts(doc, opts.get('silk_hole_format', 'internal')))
         elif key == 'holes':
             reports.append(ops.restore_holes(project, doc, origin, holes,
                                              opts.get('holes_ring', 0.0),
@@ -86,6 +89,8 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
         allowed |= {'Polygon', 'Track'}
     if 'holes' in doc_steps:
         allowed |= {'Pad'}
+    if 'silk' in doc_steps:
+        allowed |= {'Polygon', 'Region'}
     check = ops.Report('Проверка целостности')
     for k in sorted(set(before) | set(after)):
         if before[k] != after[k]:
