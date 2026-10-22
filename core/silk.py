@@ -1,4 +1,4 @@
-"""Вырезы в полигонах шелкографии.
+"""Шелкография: вырезы в полигонах и перевод полигонов в регионы.
 
 Если в исходных данных шелкография нарисована полигонами с вырезами (буквы «О», «А»,
 «Р»), то CAMtastic импортирует вырез отдельным залитым полигоном поверх основного, и
@@ -6,13 +6,11 @@
 полигона того же слоя (на нечётной глубине вложенности).
 
 Запись Polygon хранит один внешний контур, зато Region умеет внутренние контуры
-(HOLECOUNT). Поэтому внешний полигон с вырезами переписывается в Region, а
-полигоны-вырезы удаляются. Полигоны без вырезов остаются как были.
-
-Формат внутренних контуров вручную нарисованного Region в файлах, которые я видел,
-не встречался: у Region от заливки они в единицах 1/10000 mil, а контур Region
-фигуры (ISSHAPEBASED) записан в mil. Поэтому единицы дыр выбираются параметром:
-hole_format 'internal' (1/10000 mil, как у заливки) или 'mil'.
+(HOLECOUNT), а главное, Region не пересчитывается при Repour, и сотни полигонов
+шелкографии не тормозят перезаливку. Поэтому каждый полигон шелкографии
+переписывается в Region (внешние контуры с вырезами, остальные без), а полигоны-вырезы
+удаляются. Внутренние контуры записываются в 1/10000 mil, как у Region от заливки
+(проверено в Altium).
 """
 import collections
 
@@ -31,7 +29,7 @@ def _ring_points(doc, i):
     return pts
 
 
-def _region_record(index, layer, outer, holes, hole_format):
+def _region_record(index, layer, outer, holes):
     f = ['RECORD=Region', f'INDEXFORSAVE={index}', 'SELECTION=FALSE', f'LAYER={layer}',
          'LOCKED=FALSE', 'POLYGONOUTLINE=FALSE', 'USERROUTED=TRUE', 'UNIONINDEX=0',
          'SOLDERMASKEXPANSIONMODE=None', 'PASTEMASKEXPANSIONMODE=None', 'NAME= ', 'KIND=0',
@@ -44,23 +42,21 @@ def _region_record(index, layer, outer, holes, hole_format):
     for k, ring in enumerate(holes):
         f.append(f'HOLE{k}VERTEXCOUNT={len(ring)}')
         for n, (x, y) in enumerate(ring):
-            if hole_format == 'mil':
-                f += [f'H{k}VX{n}={fmt_mil(x)}', f'H{k}VY{n}={fmt_mil(y)}']
-            else:
-                f += [f'H{k}VX{n}={x * 10000:.6f}', f'H{k}VY{n}={y * 10000:.6f}']
+            f += [f'H{k}VX{n}={x * 10000:.6f}', f'H{k}VY{n}={y * 10000:.6f}']
     return '|' + '|'.join(f)
 
 
-def silk_cutouts(doc, hole_format='internal'):
-    rep = Report('Вырезы в полигонах шелкографии')
+def silk_cutouts(doc, to_regions=True):
+    """to_regions: все полигоны шелкографии становятся регионами; иначе в регионы
+    переписываются только полигоны с вырезами, остальные остаются полигонами, и у них
+    снимается «Remove Islands Less Than» (REMOVEISLANDSBYAREA), чтобы мелкие элементы
+    букв не пропадали."""
+    rep = Report('Шелкография: вырезы и регионы')
     try:
         from shapely.geometry import Polygon
         from shapely.strtree import STRtree
     except ImportError:
         rep.error('для этой операции нужна библиотека shapely: pip install shapely')
-        return rep
-    if hole_format not in ('internal', 'mil'):
-        rep.error(f'неизвестный формат дыр: {hole_format}')
         return rep
 
     polys = doc.indices('Polygon')
@@ -76,6 +72,7 @@ def silk_cutouts(doc, hole_format='internal'):
 
     plans = []                                         # (слой, внешний контур, [контуры дыр])
     doomed = set()
+    total_holes = 0
     for layer, items in by_layer.items():
         geoms = [g for _, _, g in items]
         tree = STRtree(geoms)
@@ -95,21 +92,35 @@ def silk_cutouts(doc, hole_format='internal'):
                 a, d = parent[a], d + 1
             return d
 
+        level = {a: depth(a) for a in range(len(items))}
         holes_of = collections.defaultdict(list)
         for a in range(len(items)):
-            if parent[a] is not None and depth(a) % 2 == 1:
+            if level[a] % 2 == 1:
                 holes_of[parent[a]].append(a)
-        for a, hs in holes_of.items():
-            outer_item = items[a]
-            plans.append((layer, list(outer_item[2].exterior.coords)[:-1],
+                doomed.add(items[a][0])                # вырез как отдельный объект исчезает
+        for a in range(len(items)):
+            if level[a] % 2 == 1:
+                continue
+            hs = holes_of.get(a, [])
+            if not hs and not to_regions:
+                continue
+            plans.append((layer, list(items[a][2].exterior.coords)[:-1],
                           [list(items[h][2].exterior.coords)[:-1] for h in hs]))
-            doomed.add(outer_item[0])
-            doomed.update(items[h][0] for h in hs)
-            rep.detail(f'   {layer}: {name_of(doc.rec(outer_item[1])) or "полигон"} '
-                       f'{outer_item[2].area:,.0f} mil², вырезов {len(hs)}')
+            doomed.add(items[a][0])
+            total_holes += len(hs)
+
+    kept = [i for n, i in enumerate(polys)
+            if n not in doomed and doc.get(i, 'LAYER') in OVERLAY]
+    flagged = 0
+    for i in kept:                                     # остались полигонами: мелкие острова не удалять
+        if doc.get(i, 'REMOVEISLANDSBYAREA') == 'TRUE':
+            doc.set(i, 'REMOVEISLANDSBYAREA', 'FALSE')
+            flagged += 1
+    if flagged:
+        rep.change('у полигонов шелкографии снят «Remove Islands Less Than»', flagged)
 
     if not plans:
-        rep.note('вложенных полигонов шелкографии нет')
+        rep.note('полигонов шелкографии для перевода в регионы нет')
         return rep
 
     result = doc.delete_polygons(doomed)
@@ -118,17 +129,16 @@ def silk_cutouts(doc, hole_format='internal'):
         return rep
 
     regions = doc.indices('Region')
-    records = [_region_record(len(regions) + k, layer, outer, holes, hole_format)
+    records = [_region_record(len(regions) + k, layer, outer, holes)
                for k, (layer, outer, holes) in enumerate(plans)]
-    anchor = regions[-1] if regions else doc.indices('Polygon')[-1]
+    live = doc.indices('Polygon') or [i for i in doc.rec_idx if doc.tok[i] is not None]
+    anchor = regions[-1] if regions else live[-1]
     doc.insert_after(anchor, records)
 
-    total_holes = sum(len(h) for _, _, h in plans)
-    rep.change(f'полигонов с вырезами переписано в Region: {len(plans)}, вырезов: {total_holes}')
+    with_holes = sum(1 for _, _, h in plans if h)
+    rep.change(f'полигонов шелкографии переписано в Region: {len(plans)}, из них с вырезами: '
+               f'{with_holes} (вырезов {total_holes})')
     rep.change('удалено полигонов (внешних и вырезов)', len(doomed))
     if result['regions']:
         rep.change('удалено залитых регионов этих полигонов', result['regions'])
-    rep.note(f'единицы внутренних контуров: '
-             f'{"1/10000 mil, как у заливки" if hole_format == "internal" else "mil"}; '
-             f'если Altium откроет буквы без вырезов, сохраните вариант с другим форматом')
     return rep

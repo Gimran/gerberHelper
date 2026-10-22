@@ -102,7 +102,7 @@ The interface is in Russian.
 | Via diameters per layer | per-layer sizes for Full Stack vias (`PADMODE=2`); `DIAMETER` is set to the maximum, as Altium itself does | off |
 | Hatching tracks to polygons | merges overlapping strokes of one net into an outline, writes a `Polygon` and deletes the strokes; significant cut-outs in the pour are kept by splitting; needs `shapely` | off |
 | Missing holes | for drill-file holes with neither a pad nor a via on the board, adds a net-less `Pad` the size of the hole; plating comes from the drill file, but holes from a given diameter up (the "неметаллизир. от, мм" field in the window, `--holes-npth-over` on the command line) are made non-plated; the copper ring is set with `--holes-ring`; holes with a wrong diameter are only listed | off |
-| Silkscreen cut-outs | polygons nested inside other silkscreen polygons (the counters of letters such as O or A), which CAMtastic fills in, become inner contours of a `Region`; hole units are set by `--silk-hole-format internal\|mil`; needs `shapely` | off |
+| Silkscreen: cut-outs and regions | polygons nested inside other silkscreen polygons (the counters of letters such as O or A), which CAMtastic fills in, become inner contours of a `Region`; all silkscreen polygons are rewritten as regions, because a Region is not recomputed on Repour and does not slow it down (`--silk-keep-polygons`: only those with cut-outs, the rest get "Remove Islands Less Than" cleared); needs `shapely` | off |
 | Remove net-less polygons | polygon pours without a net on copper layers; silkscreen polygons are left alone | on |
 
 Extra checkboxes: zero the via size on layers where the Gerber has no pad, and also remove

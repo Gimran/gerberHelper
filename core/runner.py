@@ -14,7 +14,7 @@ STEPS = [
     ('pads', 'Форма, размер и поворот площадок из Gerber', True),
     ('hatch', 'Штриховка треками в полигоны', True),
     ('holes', 'Недостающие отверстия из сверловки', True),
-    ('silk', 'Вырезы в полигонах шелкографии', True),
+    ('silk', 'Шелкография: вырезы и перевод полигонов в регионы', True),
     ('via_sizes', 'Диаметры via по слоям', True),
     ('polygons', 'Удаление полигонов без сети', True),
 ]
@@ -70,7 +70,7 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
                 opts.get('hatch_min_area', 20000.0), opts.get('hatch_simplify', 0.3),
                 opts.get('hatch_min_void', 1000.0)))
         elif key == 'silk':
-            reports.append(silk.silk_cutouts(doc, opts.get('silk_hole_format', 'internal')))
+            reports.append(silk.silk_cutouts(doc, not opts.get('silk_keep_polygons', False)))
         elif key == 'holes':
             reports.append(ops.restore_holes(project, doc, origin, holes,
                                              opts.get('holes_ring', 0.0),
