@@ -80,9 +80,13 @@ class Gerber:
         x = y = 0
         cur = None
         self.flashes = {}
-        for blk in txt.split('*'):
+        # Расширенные команды (%...%) уже разобраны выше. Вырезаем их целиком до разбиения
+        # по '*': иначе закрывающий '%' склеивается со следующей обычной командой
+        # ('%\nD10') и выбор апертуры теряется
+        body = re.sub(r'%[^%]*%', '', txt)
+        for blk in body.split('*'):
             blk = blk.strip()
-            if not blk or blk.startswith('%') or blk.startswith('G04'):
+            if not blk or blk.startswith('G04'):
                 continue
             m = re.search(r'D(\d{2,})$', blk)
             if m and int(m.group(1)) >= 10:
