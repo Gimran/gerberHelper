@@ -32,7 +32,8 @@ PCB_STEPS = [
     ('via_layers', 'Растащить via по слоям, по парам сверловки', None),
     ('pads', 'Форма, размер и поворот площадок из Gerber', None),
     ('hatch', 'Штриховку из треков превратить в полигоны (нужна shapely)', None),
-    ('holes', 'Добавить отверстия из сверловки, которых нет на плате', None),
+    ('holes', 'Добавить отверстия из сверловки, которых нет на плате', ('text:holes_npth_over',
+                                                                        'неметаллизир. от, мм:')),
     ('via_sizes', 'Диаметры via по слоям',
      ('zero_missing', 'обнулять на слоях, где в Gerber нет площадки')),
     ('polygons', 'Удалить полигоны без сети',
@@ -143,7 +144,13 @@ class App(ctk.CTk):
                                 .get(key, DEFAULT_ON.get(key, True)))
             self.step_vars[key] = var
             ctk.CTkCheckBox(line, text=title, variable=var).pack(side='left')
-            if opt:
+            if opt and opt[0].startswith('text:'):          # числовое поле вместо галочки
+                oname, otext = opt[0][5:], opt[1]
+                tvar = tk.StringVar(value=str(self.settings.get('opts', {}).get(oname, '3')))
+                self.opt_vars[oname] = tvar
+                ctk.CTkLabel(line, text=otext, font=SMALL).pack(side='left', padx=(24, 6))
+                ctk.CTkEntry(line, textvariable=tvar, width=50, height=24).pack(side='left')
+            elif opt:
                 oname, otext = opt
                 ovar = tk.BooleanVar(value=self.settings.get('opts', {}).get(oname, False))
                 self.opt_vars[oname] = ovar
@@ -362,7 +369,8 @@ class App(ctk.CTk):
             out_dir = os.path.join(self.project.folder, out_dir)
         opts = dict(out_dir=out_dir,
                     zero_missing=self.opt_vars.get('zero_missing', tk.BooleanVar()).get(),
-                    include_silk=self.opt_vars.get('include_silk', tk.BooleanVar()).get())
+                    include_silk=self.opt_vars.get('include_silk', tk.BooleanVar()).get(),
+                    holes_npth_over=self._number(self.opt_vars.get('holes_npth_over')))
         self._save_settings()
         self._set_busy(True, 'Применение...' if apply else 'Анализ...')
         self.out.delete('1.0', 'end')
@@ -378,6 +386,13 @@ class App(ctk.CTk):
                 import traceback
                 self.queue.put(('error', traceback.format_exc()))
         threading.Thread(target=work, daemon=True).start()
+
+    @staticmethod
+    def _number(var):
+        try:
+            return float(str(var.get()).replace(',', '.')) if var else None
+        except ValueError:
+            return None
 
     def save_report(self):
         if not self.reports:

@@ -381,11 +381,12 @@ def _default_pad():
     return '|' + '|'.join(f)
 
 
-def restore_holes(project, doc, origin=None, holes=None, ring=0.0, tol=3.0):
+def restore_holes(project, doc, origin=None, holes=None, ring=0.0, tol=3.0, npth_over=None):
     """Отверстие есть в сверловке, а на плате под ним нет ни пада, ни via: добавляем Pad.
 
     ring - ширина медного пояска вокруг отверстия, mil; 0 даёт пад размером с отверстие.
-    Металлизация берётся из файла сверловки. Pad создаётся без цепи.
+    Металлизация берётся из файла сверловки, но отверстия диаметром от npth_over мм и
+    крупнее (крепёж) делаются неметаллизированными. Pad создаётся без цепи.
     """
     import random
     from .pcbdoc import set_field
@@ -414,7 +415,10 @@ def restore_holes(project, doc, origin=None, holes=None, ring=0.0, tol=3.0):
         found = objects_at(x, y)
         dia = d.dia_mil(t)
         if not found:
-            missing.append((x, y, dia, d.tools[t].get('plated', True), t))
+            plated = d.tools[t].get('plated', True)
+            if npth_over and dia * 0.0254 >= npth_over:
+                plated = False
+            missing.append((x, y, dia, plated, t))
             continue
         drilled = max(o[2] for o in found)
         if drilled <= 0:

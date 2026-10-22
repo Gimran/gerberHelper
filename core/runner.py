@@ -70,7 +70,8 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
                 opts.get('hatch_min_void', 1000.0)))
         elif key == 'holes':
             reports.append(ops.restore_holes(project, doc, origin, holes,
-                                             opts.get('holes_ring', 0.0)))
+                                             opts.get('holes_ring', 0.0),
+                                             npth_over=opts.get('holes_npth_over')))
         elif key == 'via_sizes':
             reports.append(ops.fix_via_sizes(project, doc, opts.get('zero_missing', False),
                                              origin, holes))
