@@ -1,0 +1,9 @@
+# cmd.exe не находит метки (goto/call :nodep) в файле с окончаниями LF,
+# поэтому .bat всегда выдаётся с CRLF, что бы ни стояло в настройках git у клонирующего.
+# Файл записан в кодировке cp866 (консоль cmd), git её не трогает.
+*.bat text eol=crlf
+
+*.py  text eol=lf
+*.pyw text eol=lf
+*.md  text eol=lf
+*.json text eol=lf

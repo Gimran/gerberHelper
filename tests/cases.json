@@ -1,0 +1,27 @@
+[
+ {
+  "name": "сверловка, выгрузка Allegro с M00 (2:5)",
+  "type": "drill",
+  "input": "fixtures/board1-plain",
+  "expected": "fixtures/board1-plain/expected"
+ },
+ {
+  "name": "сверловка, выгрузка Allegro с Tnn (5:5, TZ)",
+  "type": "drill",
+  "input": "fixtures/board2-enhanced",
+  "expected": "fixtures/board2-enhanced/expected"
+ },
+ {
+  "name": "PcbDoc: слои via, пады, диаметры, полигоны",
+  "type": "pcbdoc",
+  "input": "fixtures/board2-pcbdoc",
+  "pcb": "board.PcbDoc",
+  "steps": [
+   "via_layers",
+   "pads",
+   "via_sizes",
+   "polygons"
+  ],
+  "expected": "fixtures/board2-pcbdoc/expected/board.PcbDoc"
+ }
+]
