@@ -31,12 +31,14 @@ SMALL = ('', 11)
 PCB_STEPS = [
     ('via_layers', 'Растащить via по слоям, по парам сверловки', None),
     ('pads', 'Форма, размер и поворот площадок из Gerber', None),
+    ('hatch', 'Штриховку из треков превратить в полигоны (нужна shapely)', None),
     ('via_sizes', 'Диаметры via по слоям',
      ('zero_missing', 'обнулять на слоях, где в Gerber нет площадки')),
     ('polygons', 'Удалить полигоны без сети',
      ('include_silk', 'включая слои шелкографии')),
 ]
-DEFAULT_ON = {'via_layers': True, 'pads': True, 'via_sizes': False, 'polygons': True}
+DEFAULT_ON = {'via_layers': True, 'pads': True, 'hatch': False, 'via_sizes': False,
+              'polygons': True}
 
 
 class App(ctk.CTk):

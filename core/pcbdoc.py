@@ -99,6 +99,23 @@ class PcbDoc:
         if i + 1 < len(self.tok):
             self.tok[i + 1] = None          # and the separator that follows it
 
+    def insert_after(self, i, records):
+        """Insert new records right after record i, with the same line separator.
+
+        Positions of everything after i shift, so the index list is rebuilt; indices
+        obtained earlier for records behind i must not be reused.
+        """
+        sep = self.tok[i + 1] if i + 1 < len(self.tok) and self.tok[i + 1] is not None else '\r'
+        block = []
+        for text in records:
+            block += [text, sep]
+        self.tok[i + 2:i + 2] = block
+        self.reindex()
+
+    def reindex(self):
+        self.rec_idx = [i for i in range(0, len(self.tok), 2)
+                        if self.tok[i] is not None and self.tok[i].strip()]
+
     def text(self):
         return ''.join(t for t in self.tok if t is not None)
 

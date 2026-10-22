@@ -4,7 +4,7 @@ Order matters: via layers must be known before per layer via sizes are read from
 the gerbers.  The document is written once, after every operation has had its
 say, and only if none of them reported an error.
 """
-from . import ops
+from . import hatch, ops
 from .pcbdoc import PcbDoc
 
 # key, title, needs the PcbDoc
@@ -12,6 +12,7 @@ STEPS = [
     ('drill', 'Конвертация сверловки в формат Altium', False),
     ('via_layers', 'Слои переходных отверстий по парам сверловки', True),
     ('pads', 'Форма, размер и поворот площадок из Gerber', True),
+    ('hatch', 'Штриховка треками в полигоны', True),
     ('via_sizes', 'Диаметры via по слоям', True),
     ('polygons', 'Удаление полигонов без сети', True),
 ]
@@ -44,13 +45,16 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
     doc = PcbDoc(path)
     before = doc.counts()
 
-    holes = ops.HoleIndex(project)
-    origin_rep = ops.Report('Привязка координат')
-    origin = ops.find_origin(doc, holes, origin_rep)
-    if holes.conflicts:
-        origin_rep.note(f'координаты, встречающиеся в двух файлах сверловки: '
-                        f'{len(holes.conflicts)}')
-    reports.append(origin_rep)
+    # привязка к сверловке и Gerber нужна только операциям, которые с ними сверяются
+    holes = origin = None
+    if any(k in doc_steps for k in ('via_layers', 'pads', 'via_sizes')):
+        holes = ops.HoleIndex(project)
+        origin_rep = ops.Report('Привязка координат')
+        origin = ops.find_origin(doc, holes, origin_rep)
+        if holes.conflicts:
+            origin_rep.note(f'координаты, встречающиеся в двух файлах сверловки: '
+                            f'{len(holes.conflicts)}')
+        reports.append(origin_rep)
 
     for key in doc_steps:
         log(STEP_TITLE[key] + '...')
@@ -58,6 +62,11 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
             reports.append(ops.fix_via_layers(project, doc, holes, origin))
         elif key == 'pads':
             reports.append(ops.fix_pad_shapes(project, doc, origin, holes))
+        elif key == 'hatch':
+            reports.append(hatch.hatch_to_polygons(
+                doc, opts.get('hatch_min_tracks', 50), opts.get('hatch_min_overlap', 1.4),
+                opts.get('hatch_min_area', 20000.0), opts.get('hatch_simplify', 0.3),
+                opts.get('hatch_min_void', 1000.0)))
         elif key == 'via_sizes':
             reports.append(ops.fix_via_sizes(project, doc, opts.get('zero_missing', False),
                                              origin, holes))
@@ -68,6 +77,8 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
     # record counts: only what we deliberately delete may change
     after = doc.counts()
     allowed = {'Polygon', 'Region'} if 'polygons' in doc_steps else set()
+    if 'hatch' in doc_steps:
+        allowed |= {'Polygon', 'Track'}
     check = ops.Report('Проверка целостности')
     for k in sorted(set(before) | set(after)):
         if before[k] != after[k]:

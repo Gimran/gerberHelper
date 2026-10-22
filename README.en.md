@@ -27,6 +27,10 @@ Gerber and drill files.
   the Gerber.
 - **Empty net-less polygons** (`No Net`) are removed, and the references to the remaining
   ones are renumbered.
+- **Polygons turned into hatching made of tracks.** This happens with Gerbers produced by
+  CAM350 and similar tools: the pour is stored as thousands of overlapping strokes, so the
+  PCB receives thousands of tracks instead of polygons. The tool merges the strokes into an
+  outline and writes it as a `Polygon` of the same net (see below).
 - **Layer naming in Gerber files differs from export to export.** Detection uses masks from
   `layer_rules.json`, and layers can also be assigned by hand in the window.
 
@@ -59,7 +63,8 @@ pip install customtkinter
 ```
 
 `customtkinter` is needed only by the window; the core and the command line use the
-standard library only. Tested on Windows 11 and Python 3.14; it has not been run on older
+standard library only, except the hatching operation, which also needs `shapely`
+(`pip install shapely`). Tested on Windows 11 and Python 3.14; it has not been run on older
 Python versions.
 
 | How to start | What it is |
@@ -92,6 +97,7 @@ The interface is in Russian.
 | Via layers | `STARTLAYER` / `ENDLAYER` from the drill pairs | on |
 | Pad shape and rotation | `SHAPE`, `XSIZE`, `YSIZE`, `ROTATION` from the Gerber apertures | on |
 | Via diameters per layer | per-layer sizes for Full Stack vias (`PADMODE=2`); `DIAMETER` is set to the maximum, as Altium itself does | off |
+| Hatching tracks to polygons | merges overlapping strokes of one net into an outline, writes a `Polygon` and deletes the strokes; significant cut-outs in the pour are kept by splitting; needs `shapely` | off |
 | Remove net-less polygons | polygon pours without a net on copper layers; silkscreen polygons are left alone | on |
 
 Extra checkboxes: zero the via size on layers where the Gerber has no pad, and also remove
@@ -143,10 +149,13 @@ layer assignment is available in the window only.
 
 ```bash
 python tests/regression.py
+python tests/test_hatch.py
 ```
 
-Runs the tool on two boards and compares the result byte for byte with reference outputs:
-drill conversion for both flavours of Allegro output and the full set of PcbDoc operations.
+`regression.py` runs the tool on two boards and compares the result byte for byte with
+reference outputs: drill conversion for both flavours of Allegro output and the full set of
+PcbDoc operations. `test_hatch.py` checks the hatching conversion on a synthetic board and
+needs no real data.
 
 The real boards used for this are not in the repository (`tests/fixtures/` is in
 `.gitignore`). Without them the cases in `tests/cases.json` are reported as skipped, not
@@ -166,6 +175,7 @@ core/
   gerber.py           RS-274X reader: apertures, %AM macros, flashes
   excellon.py         reads Allegro drill files, writes the Altium layout
   pcbdoc.py           ASCII PcbDoc: field edits without shifting any other byte
+  hatch.py            hatching tracks to polygons (shapely)
   layers.py           applies the detection masks
   project.py          what is in the folder, the stack, the layer mapping
   ops.py              drill and board operations
