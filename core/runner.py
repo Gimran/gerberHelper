@@ -13,6 +13,7 @@ STEPS = [
     ('via_layers', 'Слои переходных отверстий по парам сверловки', True),
     ('pads', 'Форма, размер и поворот площадок из Gerber', True),
     ('hatch', 'Штриховка треками в полигоны', True),
+    ('holes', 'Недостающие отверстия из сверловки', True),
     ('via_sizes', 'Диаметры via по слоям', True),
     ('polygons', 'Удаление полигонов без сети', True),
 ]
@@ -47,7 +48,7 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
 
     # привязка к сверловке и Gerber нужна только операциям, которые с ними сверяются
     holes = origin = None
-    if any(k in doc_steps for k in ('via_layers', 'pads', 'via_sizes')):
+    if any(k in doc_steps for k in ('via_layers', 'pads', 'via_sizes', 'holes')):
         holes = ops.HoleIndex(project)
         origin_rep = ops.Report('Привязка координат')
         origin = ops.find_origin(doc, holes, origin_rep)
@@ -67,6 +68,9 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
                 doc, opts.get('hatch_min_tracks', 50), opts.get('hatch_min_overlap', 1.4),
                 opts.get('hatch_min_area', 20000.0), opts.get('hatch_simplify', 0.3),
                 opts.get('hatch_min_void', 1000.0)))
+        elif key == 'holes':
+            reports.append(ops.restore_holes(project, doc, origin, holes,
+                                             opts.get('holes_ring', 0.0)))
         elif key == 'via_sizes':
             reports.append(ops.fix_via_sizes(project, doc, opts.get('zero_missing', False),
                                              origin, holes))
@@ -79,6 +83,8 @@ def run(project, selected, opts=None, apply=False, pcb_path=None, log=None):
     allowed = {'Polygon', 'Region'} if 'polygons' in doc_steps else set()
     if 'hatch' in doc_steps:
         allowed |= {'Polygon', 'Track'}
+    if 'holes' in doc_steps:
+        allowed |= {'Pad'}
     check = ops.Report('Проверка целостности')
     for k in sorted(set(before) | set(after)):
         if before[k] != after[k]:

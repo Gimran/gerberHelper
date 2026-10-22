@@ -31,6 +31,9 @@ Gerber and drill files.
   CAM350 and similar tools: the pour is stored as thousands of overlapping strokes, so the
   PCB receives thousands of tracks instead of polygons. The tool merges the strokes into an
   outline and writes it as a `Polygon` of the same net (see below).
+- **Holes without pads go missing** (mounting and other holes with no copper around them in
+  the Gerber, so CAMtastic has nothing to build a pad from). The tool compares the board with
+  the drill file and adds the missing ones.
 - **Layer naming in Gerber files differs from export to export.** Detection uses masks from
   `layer_rules.json`, and layers can also be assigned by hand in the window.
 
@@ -98,6 +101,7 @@ The interface is in Russian.
 | Pad shape and rotation | `SHAPE`, `XSIZE`, `YSIZE`, `ROTATION` from the Gerber apertures | on |
 | Via diameters per layer | per-layer sizes for Full Stack vias (`PADMODE=2`); `DIAMETER` is set to the maximum, as Altium itself does | off |
 | Hatching tracks to polygons | merges overlapping strokes of one net into an outline, writes a `Polygon` and deletes the strokes; significant cut-outs in the pour are kept by splitting; needs `shapely` | off |
+| Missing holes | for drill-file holes with neither a pad nor a via on the board, adds a net-less `Pad` the size of the hole; plating comes from the drill file; holes with a wrong diameter are only listed | off |
 | Remove net-less polygons | polygon pours without a net on copper layers; silkscreen polygons are left alone | on |
 
 Extra checkboxes: zero the via size on layers where the Gerber has no pad, and also remove
@@ -150,12 +154,13 @@ layer assignment is available in the window only.
 ```bash
 python tests/regression.py
 python tests/test_hatch.py
+python tests/test_holes.py
 ```
 
 `regression.py` runs the tool on two boards and compares the result byte for byte with
 reference outputs: drill conversion for both flavours of Allegro output and the full set of
-PcbDoc operations. `test_hatch.py` checks the hatching conversion on a synthetic board and
-needs no real data.
+PcbDoc operations. `test_hatch.py` and `test_holes.py` check hatching and missing holes on
+synthetic boards and need no real data.
 
 The real boards used for this are not in the repository (`tests/fixtures/` is in
 `.gitignore`). Without them the cases in `tests/cases.json` are reported as skipped, not

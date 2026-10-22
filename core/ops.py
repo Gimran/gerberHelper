@@ -7,6 +7,8 @@ import collections
 import os
 
 from .gerber import GRID
+import re
+
 from .pcbdoc import (COPPER, fmt_mil, fmt_rot, kind, mil, name_of, norm_rot)
 from .report import Report
 
@@ -51,21 +53,26 @@ class HoleIndex:
 
 
 def find_origin(doc, holes, report):
-    """pcb coordinate = drill coordinate + origin. Taken from the Board record and checked."""
+    """pcb coordinate = drill coordinate + origin. Taken from the Board record and checked.
+
+    Probes are the first vias and the first pads that have a hole: a board without vias
+    (all holes are pads) is checked just the same.
+    """
     ox, oy = doc.origin()
-    vias = doc.indices('Via')[:60]
+    probes = list(doc.indices('Via')[:60])
+    probes += [i for i in doc.indices('Pad') if mil(doc.get(i, 'HOLESIZE') or '0mil') > 0][:60]
 
     def score(off):
         n = 0
-        for i in vias:
+        for i in probes:
             hit, _ = holes.at(mil(doc.get(i, 'X')) - off[0], mil(doc.get(i, 'Y')) - off[1])
             n += hit is not None
         return n
 
     best, hits = (ox, oy), score((ox, oy))
-    if vias and hits < len(vias) * 0.5:          # the Board origin is not it: vote instead
+    if probes and hits < len(probes) * 0.5:      # the Board origin is not it: vote instead
         votes = collections.Counter()
-        for i in vias:
+        for i in probes:
             vx, vy = mil(doc.get(i, 'X')), mil(doc.get(i, 'Y'))
             for hit in holes.by_pos.values():
                 votes[(round(vx - hit[3], 2), round(vy - hit[4], 2))] += 1
@@ -74,7 +81,7 @@ def find_origin(doc, holes, report):
             if score(cand) > hits:
                 best, hits = cand, score(cand)
                 report.note(f'смещение взято подбором, а не из записи Board: {best}')
-    report.note(f'смещение {best[0]}, {best[1]} mil, совпало {hits} из {len(vias)} проверенных via')
+    report.note(f'смещение {best[0]}, {best[1]} mil, совпало {hits} из {len(probes)} проверенных объектов')
     return best
 
 
@@ -352,4 +359,108 @@ def remove_nonet_polygons(project, doc, include_silk=False):
            if doc.get(i, 'POLYGON') is not None and int(doc.get(i, 'POLYGON')) not in left]
     if bad:
         rep.error(f'висячие ссылки на удалённые полигоны: {sorted(set(bad))[:10]}')
+    return rep
+
+
+# ---------------------------------------------------------------- 6. missing holes
+def _default_pad():
+    """Запись Pad для случая, когда в файле нет подходящего образца."""
+    f = ['RECORD=Pad', 'INDEXFORSAVE=0', 'SELECTION=FALSE', 'LAYER=MULTILAYER', 'LOCKED=FALSE',
+         'POLYGONOUTLINE=FALSE', 'USERROUTED=TRUE', 'UNIONINDEX=0',
+         'SOLDERMASKEXPANSIONMODE=Manual', 'SOLDERMASKEXPANSION_MANUAL=0mil',
+         'PASTEMASKEXPANSIONMODE=Rule', 'NAME=1', 'X=0mil', 'Y=0mil', 'XSIZE=0mil', 'YSIZE=0mil',
+         'SHAPE=ROUND', 'HOLESIZE=0mil', 'ROTATION= 0.00000000000000E+0000', 'PLATED=TRUE',
+         'DAISYCHAIN=Load', 'CCSV=0', 'CPLV=0', 'CCWV=0', 'CENV=0', 'CAGV=0', 'CPEV=1', 'CSEV=2',
+         'CPCV=1', 'CPRV=0', 'CPE=0mil', 'CSE=3.9499mil', 'CUSE=TRUE', 'CSB=23.1498mil',
+         'CPC=20mil', 'PADMODE=0', 'SWAPID_PAD=', 'SWAPID_GATE=', '&|0', 'SWAPPEDPADNAME=',
+         'GATEID=0', 'OVERRIDEWITHV6_6SHAPES=FALSE', 'DRILLTYPE=0', 'HOLETYPE=0',
+         'HOLEWIDTH=0mil', 'HOLEROTATION= 0.00000000000000E+0000']
+    for n in range(32):
+        f += [f'PADXOFFSET{n}=0mil', f'PADYOFFSET{n}=0mil']
+    f += ['PADJUMPERID=0', 'UNIQUEID=AAAAAAAA']
+    return '|' + '|'.join(f)
+
+
+def restore_holes(project, doc, origin=None, holes=None, ring=0.0, tol=3.0):
+    """Отверстие есть в сверловке, а на плате под ним нет ни пада, ни via: добавляем Pad.
+
+    ring - ширина медного пояска вокруг отверстия, mil; 0 даёт пад размером с отверстие.
+    Металлизация берётся из файла сверловки. Pad создаётся без цепи.
+    """
+    import random
+    from .pcbdoc import set_field
+    rep = Report('Недостающие отверстия')
+    holes = holes if holes is not None else HoleIndex(project)
+    if not len(holes):
+        rep.error('нет данных сверловки')
+        return rep
+    off = origin or find_origin(doc, holes, rep)
+
+    grid = collections.defaultdict(list)
+    for kind_name in ('Pad', 'Via'):
+        for i in doc.indices(kind_name):
+            x, y = mil(doc.get(i, 'X')), mil(doc.get(i, 'Y'))
+            grid[(round(x / tol), round(y / tol))].append(
+                (x, y, mil(doc.get(i, 'HOLESIZE') or '0mil')))
+
+    def objects_at(x, y):
+        gx, gy = round(x / tol), round(y / tol)
+        return [o for dx in (-1, 0, 1) for dy in (-1, 0, 1) for o in grid.get((gx + dx, gy + dy), ())
+                if abs(o[0] - x) <= tol and abs(o[1] - y) <= tol]
+
+    missing = []
+    for d, t, _, hx, hy in holes.by_pos.values():
+        x, y = hx + off[0], hy + off[1]
+        found = objects_at(x, y)
+        dia = d.dia_mil(t)
+        if not found:
+            missing.append((x, y, dia, d.tools[t].get('plated', True), t))
+            continue
+        drilled = max(o[2] for o in found)
+        if drilled <= 0:
+            rep.note('на месте отверстия стоит объект без отверстия, не тронут')
+            rep.detail(f'   X={fmt_mil(x)} Y={fmt_mil(y)}: в сверловке {dia * 0.0254:.3f} мм')
+        elif abs(drilled - dia) > 1.0:
+            rep.note('диаметр отверстия на плате не совпадает со сверловкой, не тронут')
+            rep.detail(f'   X={fmt_mil(x)} Y={fmt_mil(y)}: на плате {drilled * 0.0254:.3f} мм, '
+                       f'в сверловке {dia * 0.0254:.3f} мм')
+        else:
+            rep.note('отверстие на месте')
+    if not missing:
+        return rep
+
+    pads = doc.indices('Pad')
+    template = next((doc.rec(i) for i in pads
+                     if doc.get(i, 'LAYER') == 'MULTILAYER' and doc.get(i, 'PADMODE') == '0'
+                     and doc.get(i, 'SHAPE') == 'ROUND'
+                     and mil(doc.get(i, 'HOLESIZE') or '0mil') > 0), None) or _default_pad()
+    template = re.sub(r'\|NET=[^|]*', '', template, count=1)           # новый пад без цепи
+    used = {doc.get(i, 'UNIQUEID') for i in pads}
+    rnd = random.Random(len(pads))
+    letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    records, per_tool = [], collections.Counter()
+    for n, (x, y, dia, plated, t) in enumerate(sorted(missing, key=lambda m: (m[4], m[0], m[1]))):
+        uid = ''.join(rnd.choice(letters) for _ in range(8))
+        while uid in used:
+            uid = ''.join(rnd.choice(letters) for _ in range(8))
+        used.add(uid)
+        rec = template
+        for key, value in (('INDEXFORSAVE', len(pads) + n), ('X', fmt_mil(x)), ('Y', fmt_mil(y)),
+                           ('XSIZE', fmt_mil(dia + 2 * ring)), ('YSIZE', fmt_mil(dia + 2 * ring)),
+                           ('SHAPE', 'ROUND'), ('HOLESIZE', fmt_mil(dia)), ('HOLEWIDTH', fmt_mil(dia)),
+                           ('PLATED', 'TRUE' if plated else 'FALSE'), ('NAME', f'H{n + 1}'),
+                           ('UNIQUEID', uid), ('ROTATION', fmt_rot(0.0))):
+            rec = set_field(rec, key, value)
+        records.append(rec)
+        per_tool[(t, round(dia * 0.0254, 4), plated)] += 1
+        rep.detail(f'   добавлен пад H{n + 1}: X={fmt_mil(x)} Y={fmt_mil(y)}, отверстие '
+                   f'{dia * 0.0254:.4f} мм, {"металлизированное" if plated else "неметаллизированное"}')
+
+    anchor = pads[-1] if pads else doc.rec_idx[-1]
+    doc.insert_after(anchor, records)
+    for (t, mm, plated), n in sorted(per_tool.items()):
+        rep.change(f'T{t:02d} {mm:g} мм, {"металлизированное" if plated else "неметаллизированное"}: '
+                   f'добавлен пад', n)
+    rep.note('пады добавлены без цепи и без контактной площадки сверх отверстия '
+             '(размер пада равен отверстию)')
     return rep
